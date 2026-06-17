@@ -22,6 +22,22 @@ db.serialize(() => {
         tx REAL,
         status TEXT
     )`);
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password TEXT,
+        role TEXT
+    )`);
+    // Insert default admin if users table is empty
+    db.get("SELECT COUNT(*) as count FROM users", [], (err, row) => {
+        if (!err && row && row.count === 0) {
+            const crypto = require('crypto');
+            const salt = crypto.randomBytes(16).toString('hex');
+            const hash = crypto.scryptSync('admin123', salt, 64).toString('hex');
+            const finalHash = `${salt}:${hash}`;
+            db.run("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ['admin', finalHash, 'admin']);
+        }
+    });
 });
 
 // Safe wrapper for db.run to avoid uncaught errors
@@ -52,20 +68,45 @@ setInterval(() => {
 
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
-    const adminUser = process.env.DASHBOARD_USER || 'admin';
-    const adminPass = process.env.DASHBOARD_PASS || 'admin';
-
-    if (username === adminUser && password === adminPass) {
-        const token = crypto.randomBytes(32).toString('hex');
-        activeSessions.set(token, {
-            username,
-            expiresAt: Date.now() + 2 * 60 * 60 * 1000 // 2 hours
-        });
-        return res.json({ success: true, token });
-    } else {
-        return res.status(401).json({ success: false, error: "Username atau password salah." });
-    }
+    
+    db.get("SELECT * FROM users WHERE username = ?", [username], (err, user) => {
+        if (err || !user) {
+            return res.status(401).json({ success: false, error: "Username atau password salah." });
+        }
+        
+        try {
+            const [salt, key] = user.password.split(':');
+            const crypto = require('crypto');
+            const hashedBuffer = crypto.scryptSync(password, salt, 64);
+            const keyBuffer = Buffer.from(key, 'hex');
+            const match = crypto.timingSafeEqual(hashedBuffer, keyBuffer);
+            
+            if (match) {
+                const token = crypto.randomBytes(32).toString('hex');
+                activeSessions.set(token, {
+                    username: user.username,
+                    role: user.role,
+                    expiresAt: Date.now() + 2 * 60 * 60 * 1000 // 2 hours
+                });
+                return res.json({ success: true, token, role: user.role });
+            } else {
+                return res.status(401).json({ success: false, error: "Username atau password salah." });
+            }
+        } catch (e) {
+            return res.status(500).json({ success: false, error: "Internal server error." });
+        }
+    });
 });
+
+app.get('/api/users', (req, res) => {
+    // Basic authorization check (ideally we should use authMiddleware but it is defined below, we'll assume it's applied correctly if we place it after, wait, authMiddleware is app.use('/api') so it applies to all. We are fine to just return users.)
+    // Wait, the routes are defined before authMiddleware?
+    // Actually, in server.js, app.use('/api', authMiddleware) is on line 89. So anything defined BEFORE line 89 is NOT protected by authMiddleware!
+    // But wait, the original app.post('/api/login') was at line 53, BEFORE authMiddleware. That's why it wasn't blocked.
+    // If I add `/api/users` here, it will be UNPROTECTED! I should add `/api/users` AFTER authMiddleware!
+    // So I shouldn't add it in this chunk. I'll add it in another chunk.
+    // Wait, I will just do it properly. Let's not add /api/users here.
+
 
 function authMiddleware(req, res, next) {
     const authHeader = req.headers['authorization'];
@@ -91,6 +132,38 @@ app.use('/api', (req, res, next) => {
         return next();
     }
     authMiddleware(req, res, next);
+});
+
+app.get('/api/users', (req, res) => {
+    db.all("SELECT id, username, role FROM users", [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+app.post('/api/users/add', (req, res) => {
+    const { username, password, role } = req.body;
+    if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+    
+    const crypto = require('crypto');
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+    const finalHash = `${salt}:${hash}`;
+    
+    db.run("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", [username, finalHash, role || 'user'], function(err) {
+        if (err) {
+            if (err.message.includes("UNIQUE")) return res.status(400).json({ error: "Username already exists" });
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ success: true, id: this.lastID });
+    });
+});
+
+app.delete('/api/users/delete/:id', (req, res) => {
+    db.run("DELETE FROM users WHERE id = ?", [req.params.id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
+    });
 });
 
 app.get('/', (req, res) => {
@@ -609,6 +682,9 @@ app.get('/api/firewalls', async (req, res) => {
 app.post('/api/firewall/toggle', async (req, res) => {
     const { host, id, enable } = req.body;
     if (!host || !id) return res.status(400).json({ error: "Host and ID required" });
+    
+    // Command Injection Protection: ensure id is a valid RouterOS identifier format (*1, *A, etc) or alphanumeric
+    if (!/^\*?[A-Za-z0-9]+$/.test(id)) return res.status(400).json({ error: "Invalid ID format" });
 
     const clientObj = clients.find(c => c.host === host);
     if (!clientObj) return res.status(404).json({ error: "Router not found" });
@@ -664,6 +740,9 @@ app.get('/api/queue', async (req, res) => {
 app.post('/api/queue/toggle', async (req, res) => {
     const { host, id, enable } = req.body;
     if (!host || !id) return res.status(400).json({ error: "Host and ID required" });
+    
+    // Command Injection Protection: ensure id is a valid RouterOS identifier format (*1, *A, etc) or alphanumeric
+    if (!/^\*?[A-Za-z0-9]+$/.test(id)) return res.status(400).json({ error: "Invalid ID format" });
 
     const clientObj = clients.find(c => c.host === host);
     if (!clientObj) return res.status(404).json({ error: "Router not found" });

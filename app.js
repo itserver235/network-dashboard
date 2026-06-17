@@ -329,6 +329,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // --- License Logic ---
+    const loginContainer = document.getElementById("login-container");
     const licenseContainer = document.getElementById("license-container");
     const licenseInput = document.getElementById("license-input");
     const activateBtn = document.getElementById("activate-btn");
@@ -1416,67 +1417,81 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("refresh-gps-btn").addEventListener("click", fetchAndPlotGps);
 
     // --- User Management Logic ---
-    function renderUserList() {
+    async function renderUserList() {
         const tbody = document.getElementById("user-list-tbody");
         if (!tbody) return;
-        const users = getUsers();
-        let html = "";
         
-        users.forEach(u => {
-            const isActive = (window.activeUser === u.username);
-            const statusBadge = isActive ? `<span class="badge success">Active Now</span>` : `<span class="badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid var(--card-border);">Offline</span>`;
+        try {
+            const res = await secureFetch('/api/users');
+            if (!res.ok) throw new Error("Gagal mengambil data user");
+            const users = await res.json();
             
-            // Don't allow deleting the active user or the last user
-            const canDelete = !isActive && users.length > 1;
-            
-            // Delete button as a sleek trash icon
-            const deleteBtn = canDelete ? `
-                <button class="delete-user-btn" data-user="${u.username}" title="Delete User" style="background: transparent; box-shadow: none; padding: 8px; border: 1px solid rgba(239, 68, 68, 0.3); color: var(--danger-color); border-radius: 8px; cursor: pointer; display: inline-flex; transition: all 0.2s;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                </button>
-            ` : `
-                <button disabled title="Cannot delete active/only user" style="background: transparent; box-shadow: none; padding: 8px; border: 1px solid var(--card-border); color: var(--text-muted); border-radius: 8px; opacity: 0.3; cursor: not-allowed; display: inline-flex;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                </button>
-            `;
+            let html = "";
+            users.forEach(u => {
+                const isActive = (window.activeUser === u.username);
+                const statusBadge = isActive ? `<span class="badge success">Active Now</span>` : `<span class="badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid var(--card-border);">Offline</span>`;
+                
+                // Don't allow deleting the active user or the last user
+                const canDelete = !isActive && users.length > 1;
+                
+                // Delete button
+                const deleteBtn = canDelete ? `
+                    <button class="delete-user-btn" data-id="${u.id}" data-user="${u.username}" title="Delete User" style="background: transparent; box-shadow: none; padding: 8px; border: 1px solid rgba(239, 68, 68, 0.3); color: var(--danger-color); border-radius: 8px; cursor: pointer; display: inline-flex; transition: all 0.2s;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                    </button>
+                ` : `
+                    <button disabled title="Cannot delete active/only user" style="background: transparent; box-shadow: none; padding: 8px; border: 1px solid var(--card-border); color: var(--text-muted); border-radius: 8px; opacity: 0.3; cursor: not-allowed; display: inline-flex;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                    </button>
+                `;
 
-            const initial = u.username.charAt(0).toUpperCase();
-            const userRole = u.role || 'Administrator';
-            let roleColor = 'var(--primary-color)';
-            if (userRole === 'Operator') roleColor = 'var(--warning-color)';
-            if (userRole === 'Read-Only') roleColor = 'var(--text-muted)';
+                const initial = u.username.charAt(0).toUpperCase();
+                const userRole = u.role || 'Administrator';
+                let roleColor = 'var(--primary-color)';
+                if (userRole === 'Operator') roleColor = 'var(--warning-color)';
+                if (userRole === 'Read-Only') roleColor = 'var(--text-muted)';
 
-            html += `
-                <tr>
-                    <td>
-                        <div style="display: flex; align-items: center; gap: 14px;">
-                            <div style="width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, var(--primary-color), #2563eb); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 16px; box-shadow: 0 2px 8px var(--primary-glow);">
-                                ${initial}
+                html += `
+                    <tr>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 14px;">
+                                <div style="width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, var(--primary-color), #2563eb); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 16px; box-shadow: 0 2px 8px var(--primary-glow);">
+                                    ${initial}
+                                </div>
+                                <span style="font-weight: 600; font-size: 15px; color: var(--text-color);">${u.username}</span>
                             </div>
-                            <span style="font-weight: 600; font-size: 15px; color: var(--text-color);">${u.username}</span>
-                        </div>
-                    </td>
-                    <td style="color: ${roleColor}; font-weight: 500;">${userRole}</td>
-                    <td>${statusBadge}</td>
-                    <td style="text-align: right;">${deleteBtn}</td>
-                </tr>
-            `;
-        });
-        
-        tbody.innerHTML = html;
-
-        // Attach event listeners to delete buttons
-        document.querySelectorAll(".delete-user-btn").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-                const username = e.target.getAttribute("data-user");
-                if (confirm(`Are you sure you want to delete user '${username}'?`)) {
-                    let currentUsers = getUsers();
-                    currentUsers = currentUsers.filter(u => u.username !== username);
-                    saveUsers(currentUsers);
-                    renderUserList();
-                }
+                        </td>
+                        <td style="color: ${roleColor}; font-weight: 500;">${userRole}</td>
+                        <td>${statusBadge}</td>
+                        <td style="text-align: right;">${deleteBtn}</td>
+                    </tr>
+                `;
             });
-        });
+            
+            tbody.innerHTML = html;
+
+            document.querySelectorAll(".delete-user-btn").forEach(btn => {
+                btn.addEventListener("click", async (e) => {
+                    const id = e.currentTarget.getAttribute("data-id");
+                    const username = e.currentTarget.getAttribute("data-user");
+                    if (confirm(`Are you sure you want to delete user '${username}'?`)) {
+                        try {
+                            const delRes = await secureFetch(`/api/users/delete/${id}`, { method: 'DELETE' });
+                            if (delRes.ok) {
+                                renderUserList();
+                            } else {
+                                alert("Failed to delete user.");
+                            }
+                        } catch(err) {
+                            alert("Error: " + err.message);
+                        }
+                    }
+                });
+            });
+        } catch (error) {
+            console.error(error);
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--danger-color);">Error loading users</td></tr>`;
+        }
     }
 
     const addUserBtn = document.getElementById("add-user-btn");
@@ -1502,77 +1517,61 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
     
-    addUserBtn.addEventListener("click", () => {
-        const newUsername = document.getElementById("new-username").value.trim();
-        const newPassword = document.getElementById("new-password").value.trim();
-        const newRole = document.getElementById("new-role") ? document.getElementById("new-role").value : "Administrator";
-        
-        if (!newUsername || !newPassword) {
-            addUserMsg.textContent = "Please fill in all fields.";
-            addUserMsg.style.color = "var(--danger-color)";
-            return;
-        }
+    if (addUserBtn) {
+        addUserBtn.addEventListener("click", async () => {
+            const newUsername = document.getElementById("new-username").value.trim();
+            const newPassword = document.getElementById("new-password").value.trim();
+            const newRole = document.getElementById("new-role") ? document.getElementById("new-role").value : "Administrator";
+            
+            if (!newUsername || !newPassword) {
+                addUserMsg.textContent = "Please fill in all fields.";
+                addUserMsg.style.color = "var(--danger-color)";
+                return;
+            }
 
-        const users = getUsers();
-        if (users.find(u => u.username === newUsername)) {
-            addUserMsg.textContent = "User already exists.";
-            addUserMsg.style.color = "var(--danger-color)";
-            return;
-        }
-
-        users.push({ username: newUsername, password: newPassword, role: newRole });
-        saveUsers(users);
-        
-        addUserMsg.textContent = "User added successfully!";
-        addUserMsg.style.color = "var(--success-color)";
-        
-        // Hide form and reset
-        setTimeout(() => { 
-            addUserForm.style.display = "none";
-            showAddUserBtn.style.display = "flex";
-            document.getElementById("new-username").value = "";
-            document.getElementById("new-password").value = "";
-            addUserMsg.textContent = "";
-        }, 1500);
-        
-        renderUserList();
-    });
+            try {
+                const res = await secureFetch('/api/users/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: newUsername, password: newPassword, role: newRole })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok && data.success) {
+                    addUserMsg.textContent = "User added successfully!";
+                    addUserMsg.style.color = "var(--success-color)";
+                    
+                    setTimeout(() => { 
+                        addUserForm.style.display = "none";
+                        showAddUserBtn.style.display = "flex";
+                        document.getElementById("new-username").value = "";
+                        document.getElementById("new-password").value = "";
+                        addUserMsg.textContent = "";
+                    }, 1500);
+                    
+                    renderUserList();
+                } else {
+                    addUserMsg.textContent = data.error || "Failed to add user.";
+                    addUserMsg.style.color = "var(--danger-color)";
+                }
+            } catch(e) {
+                addUserMsg.textContent = "Error connecting to server.";
+                addUserMsg.style.color = "var(--danger-color)";
+            }
+        });
+    }
 
     const changePassBtn = document.getElementById("change-pass-btn");
     const changePassMsg = document.getElementById("change-pass-msg");
     
-    changePassBtn.addEventListener("click", () => {
-        const username = window.activeUser;
-        const oldPassword = document.getElementById("old-password").value.trim();
-        const newPassword = document.getElementById("change-new-password").value.trim();
-        
-        if (!oldPassword || !newPassword) {
-            changePassMsg.textContent = "Please fill in all fields.";
-            changePassMsg.style.color = "var(--danger-color)";
-            return;
-        }
-
-        const users = getUsers();
-        const userIndex = users.findIndex(u => u.username === username && u.password === oldPassword);
-        
-        if (userIndex === -1) {
-            changePassMsg.textContent = "Invalid current password.";
-            changePassMsg.style.color = "var(--danger-color)";
-            return;
-        }
-
-        users[userIndex].password = newPassword;
-        saveUsers(users);
-        
-        changePassMsg.textContent = "Password updated successfully!";
-        changePassMsg.style.color = "var(--success-color)";
-        
-        // Clear inputs
-        document.getElementById("old-password").value = "";
-        document.getElementById("change-new-password").value = "";
-        
-        setTimeout(() => { changePassMsg.textContent = ""; }, 3000);
-    });
+    if (changePassBtn) {
+        changePassBtn.addEventListener("click", () => {
+            changePassMsg.textContent = "Fitur ganti password sedang dinonaktifkan sementara untuk perbaikan.";
+            changePassMsg.style.color = "var(--warning-color)";
+            setTimeout(() => { changePassMsg.textContent = ""; }, 3000);
+        });
+    }
 
     // --- Reports Logic ---
     let reportChartInstances = {};
