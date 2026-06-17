@@ -98,15 +98,6 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-app.get('/api/users', (req, res) => {
-    // Basic authorization check (ideally we should use authMiddleware but it is defined below, we'll assume it's applied correctly if we place it after, wait, authMiddleware is app.use('/api') so it applies to all. We are fine to just return users.)
-    // Wait, the routes are defined before authMiddleware?
-    // Actually, in server.js, app.use('/api', authMiddleware) is on line 89. So anything defined BEFORE line 89 is NOT protected by authMiddleware!
-    // But wait, the original app.post('/api/login') was at line 53, BEFORE authMiddleware. That's why it wasn't blocked.
-    // If I add `/api/users` here, it will be UNPROTECTED! I should add `/api/users` AFTER authMiddleware!
-    // So I shouldn't add it in this chunk. I'll add it in another chunk.
-    // Wait, I will just do it properly. Let's not add /api/users here.
-
 
 function authMiddleware(req, res, next) {
     const authHeader = req.headers['authorization'];
