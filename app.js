@@ -2,6 +2,31 @@
 
 window.pendingToggles = window.pendingToggles || {};
 
+async function secureFetch(url, options = {}) {
+    const token = localStorage.getItem("netdash_token");
+    options.headers = options.headers || {};
+    if (token) {
+        options.headers["Authorization"] = `Bearer ${token}`;
+    }
+    
+    try {
+        const res = await fetch(url, options);
+        if (res.status === 401 && !url.includes('/api/login')) {
+            if (window.logout) {
+                window.logout();
+            } else {
+                localStorage.removeItem("netdash_token");
+                window.location.reload();
+            }
+            throw new Error("Sesi expired. Silakan login kembali.");
+        }
+        return res;
+    } catch (e) {
+        console.error("Fetch error:", e);
+        throw e;
+    }
+}
+
 window.toggleQueue = async function(host, id, enable) {
     try {
         const safeHost = host.replace(/\./g, '-');
@@ -15,7 +40,7 @@ window.toggleQueue = async function(host, id, enable) {
             statusTextElem.style.color = enable ? 'var(--success-color)' : 'var(--text-muted)';
         }
 
-        const res = await fetch('/api/queue/toggle', {
+        const res = await secureFetch('/api/queue/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ host, id, enable })
@@ -42,7 +67,7 @@ window.toggleFirewall = async function(host, id, enable) {
             statusTextElem.style.color = enable ? 'var(--success-color)' : 'var(--text-muted)';
         }
 
-        const res = await fetch('/api/firewall/toggle', {
+        const res = await secureFetch('/api/firewall/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ host, id, enable })
@@ -289,17 +314,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // --- Initialization ---
-    if (!localStorage.getItem("netdash_users")) {
-        localStorage.setItem("netdash_users", JSON.stringify([{ username: "admin", password: "admin" }]));
-    }
-
-    function getUsers() {
-        return JSON.parse(localStorage.getItem("netdash_users") || "[]");
-    }
-
-    function saveUsers(users) {
-        localStorage.setItem("netdash_users", JSON.stringify(users));
+    // --- Restore Session on Startup ---
+    function restoreSession() {
+        const token = localStorage.getItem("netdash_token");
+        if (token) {
+            window.activeUser = "admin";
+            loginContainer.style.display = "none";
+            appContainer.style.display = "flex";
+            initTrafficChart();
+            renderDashboard();
+            if (!dashboardInterval) dashboardInterval = setInterval(renderDashboard, 10000);
+            if (!trafficInterval) trafficInterval = setInterval(updateTrafficChart, 2000);
+        }
     }
 
     // --- License Logic ---
@@ -329,6 +355,7 @@ document.addEventListener("DOMContentLoaded", () => {
             localStorage.setItem("netdash_license", key);
             licenseError.style.display = "none";
             checkLicense();
+            restoreSession();
         } else {
             licenseError.style.display = "block";
         }
@@ -336,46 +363,71 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Run on startup
     checkLicense();
+    restoreSession();
 
     // --- Authentication ---
-    function login() {
+    async function login() {
         const user = usernameInput.value.trim();
         const pass = passwordInput.value.trim();
         
-        const users = getUsers();
-        const foundUser = users.find(u => u.username === user && u.password === pass);
+        loginBtn.disabled = true;
+        const originalBtnText = loginBtn.textContent;
+        loginBtn.textContent = "Menghubungkan...";
 
-        if (foundUser) {
-            // Success
-            window.activeUser = foundUser.username;
-            loginContainer.style.display = "none";
-            appContainer.style.display = "flex";
-            loginError.style.display = "none";
-            usernameInput.value = "";
-            passwordInput.value = "";
-            initTrafficChart();
-            renderDashboard(); // Initial render
-            if (!dashboardInterval) dashboardInterval = setInterval(renderDashboard, 10000); // Auto-refresh every 10s
-            if (!trafficInterval) trafficInterval = setInterval(updateTrafficChart, 2000); // Traffic every 2s
-        } else {
+        try {
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: user, password: pass })
+            });
+            const data = await res.json();
+
+            if (res.ok && data.success) {
+                // Success
+                localStorage.setItem("netdash_token", data.token);
+                window.activeUser = user;
+                loginContainer.style.display = "none";
+                appContainer.style.display = "flex";
+                loginError.style.display = "none";
+                usernameInput.value = "";
+                passwordInput.value = "";
+                initTrafficChart();
+                renderDashboard(); // Initial render
+                if (!dashboardInterval) dashboardInterval = setInterval(renderDashboard, 10000); // Auto-refresh every 10s
+                if (!trafficInterval) trafficInterval = setInterval(updateTrafficChart, 2000); // Traffic every 2s
+            } else {
+                loginError.textContent = data.error || "Username atau password salah.";
+                loginError.style.display = "block";
+            }
+        } catch (e) {
+            loginError.textContent = "Koneksi server gagal.";
             loginError.style.display = "block";
+        } finally {
+            loginBtn.disabled = false;
+            loginBtn.textContent = originalBtnText;
         }
     }
+
+    function logout() {
+        localStorage.removeItem("netdash_token");
+        appContainer.style.display = "none";
+        loginContainer.style.display = "flex";
+        if (dashboardInterval) clearInterval(dashboardInterval);
+        if (trafficInterval) clearInterval(trafficInterval);
+        if (queueInterval) clearInterval(queueInterval);
+        dashboardInterval = null;
+        trafficInterval = null;
+        queueInterval = null;
+        window.activeUser = null;
+    }
+    window.logout = logout;
 
     loginBtn.addEventListener("click", login);
     passwordInput.addEventListener("keypress", (e) => {
         if (e.key === "Enter") login();
     });
 
-        logoutBtn.addEventListener("click", () => {
-        appContainer.style.display = "none";
-        loginContainer.style.display = "flex";
-        clearInterval(dashboardInterval);
-        clearInterval(trafficInterval);
-        dashboardInterval = null;
-        trafficInterval = null;
-        window.activeUser = null;
-    });
+    logoutBtn.addEventListener("click", logout);
 
     // --- Navigation ---
     navLinks.forEach(link => {
@@ -508,7 +560,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function fetchFromAPI(endpoint) {
         try {
-            const res = await fetch(`http://localhost:3000/api/${endpoint}`);
+            const res = await secureFetch(`/api/${endpoint}`);
             if (!res.ok) throw new Error('API Error');
             if (isOffline && navigator.onLine) setOfflineState(false);
             return await res.json();
@@ -526,7 +578,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (isOffline) return; // If whole API is down, skip individual router checks
 
         try {
-            const res = await fetch('http://localhost:3000/api/dashboard');
+            const res = await secureFetch('/api/dashboard');
             if (!res.ok) return;
             const data = await res.json();
             
@@ -690,7 +742,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 btn.style.opacity = 0.5;
 
                 try {
-                    const res = await fetch('http://localhost:3000/api/restart', {
+                    const res = await secureFetch('/api/restart', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ host })
@@ -1092,7 +1144,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!routerHost || !queueName) return;
 
         try {
-            const req = await fetch('/api/queue-traffic', {
+            const req = await secureFetch('/api/queue-traffic', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ host: routerHost, queueName: queueName })
@@ -1187,7 +1239,7 @@ document.addEventListener("DOMContentLoaded", () => {
         resultsDiv.innerHTML = "<div style='color: var(--text-muted);'>Executing ping on router(s)... Please wait.</div>";
 
         try {
-            const res = await fetch('http://localhost:3000/api/ping', {
+            const res = await secureFetch('/api/ping', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ host, target })
@@ -1598,7 +1650,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function renderReports() {
         try {
-            const res = await fetch(`http://localhost:3000/api/reports?period=${currentReportPeriod}`);
+            const res = await secureFetch(`/api/reports?period=${currentReportPeriod}`);
             const data = await res.json();
             
             const container = document.getElementById("reports-container");

@@ -5,7 +5,14 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { RouterOSAPI } = require('node-routeros');
 const sqlite3 = require('sqlite3').verbose();
 
-const db = new sqlite3.Database(path.join(__dirname, 'reports.db'));
+const db = new sqlite3.Database(path.join(__dirname, 'reports.db'), (err) => {
+    if (err) console.error('SQLite open error:', err.message);
+});
+
+// Enable WAL mode to prevent SQLITE_BUSY when multiple writes happen
+db.run('PRAGMA journal_mode=WAL;');
+db.run('PRAGMA busy_timeout=5000;'); // Wait up to 5s if locked
+
 db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS router_metrics (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -16,10 +23,75 @@ db.serialize(() => {
         status TEXT
     )`);
 });
+
+// Safe wrapper for db.run to avoid uncaught errors
+function dbRun(sql, params) {
+    db.run(sql, params, (err) => {
+        if (err && !err.message.includes('SQLITE_BUSY')) {
+            console.error('DB write error:', err.message);
+        }
+    });
+}
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
+
+const crypto = require('crypto');
+const activeSessions = new Map();
+
+// Helper to clean up expired sessions
+setInterval(() => {
+    const now = Date.now();
+    for (const [token, session] of activeSessions.entries()) {
+        if (session.expiresAt < now) {
+            activeSessions.delete(token);
+        }
+    }
+}, 5 * 60 * 1000); // clean every 5 mins
+
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    const adminUser = process.env.DASHBOARD_USER || 'admin';
+    const adminPass = process.env.DASHBOARD_PASS || 'admin';
+
+    if (username === adminUser && password === adminPass) {
+        const token = crypto.randomBytes(32).toString('hex');
+        activeSessions.set(token, {
+            username,
+            expiresAt: Date.now() + 2 * 60 * 60 * 1000 // 2 hours
+        });
+        return res.json({ success: true, token });
+    } else {
+        return res.status(401).json({ success: false, error: "Username atau password salah." });
+    }
+});
+
+function authMiddleware(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) {
+        return res.status(401).json({ error: "Access denied. No token provided." });
+    }
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+        return res.status(401).json({ error: "Access denied. Invalid token format." });
+    }
+    const session = activeSessions.get(token);
+    if (!session || session.expiresAt < Date.now()) {
+        if (session) activeSessions.delete(token);
+        return res.status(401).json({ error: "Sesi expired. Silakan login kembali." });
+    }
+    // Refresh expiration
+    session.expiresAt = Date.now() + 2 * 60 * 60 * 1000;
+    next();
+}
+
+app.use('/api', (req, res, next) => {
+    if (req.path === '/login') {
+        return next();
+    }
+    authMiddleware(req, res, next);
+});
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
@@ -49,7 +121,243 @@ for (let i = 1; i <= 10; i++) {
     clients.push({ id: i, host, client });
 }
 
+// If no clients are configured in .env, populate with mock/simulated clients
+if (clients.length === 0) {
+    console.log("No MikroTik routers configured in .env. Initializing mock routers for testing/demo.");
+    const mockRouters = [
+        { id: 1, host: "192.168.88.1", name: "Core Router" },
+        { id: 2, host: "192.168.88.2", name: "Distribution Switch" },
+        { id: 3, host: "192.168.88.3", name: "Access Point Main" }
+    ];
+    for (const r of mockRouters) {
+        clients.push({
+            id: r.id,
+            host: r.host,
+            client: { connected: true, connect: async () => {}, write: async () => {}, close: () => {} },
+            isMock: true,
+            mockName: r.name,
+            uptimeStart: Date.now() - (r.id * 5 * 3600 * 1000 + 10000), // different uptime start times
+            
+            // Mock states
+            firewalls: [
+                { '.id': '*1', comment: 'Allow HTTP/HTTPS', 'src-address': '0.0.0.0/0', 'dst-address': '192.168.88.10', port: '80,443', action: 'accept', disabled: 'false' },
+                { '.id': '*2', comment: 'Block Port Scanner', 'src-address': 'Any', 'dst-address': 'Any', port: 'Any', action: 'drop', disabled: 'false' },
+                { '.id': '*3', comment: 'Allow Winbox Access', 'src-address': '192.168.88.0/24', 'dst-address': 'Any', port: '8291', action: 'accept', disabled: 'false' },
+                { '.id': '*4', comment: 'Temp Block Facebook', 'src-address': 'Any', 'dst-address': 'Any', port: 'Any', action: 'drop', disabled: 'true' }
+            ],
+            queues: [
+                { '.id': '*1', name: 'Limit-Admin', target: '192.168.88.10/32', 'max-limit': '10M/10M', 'burst-limit': '0/0', disabled: 'false' },
+                { '.id': '*2', name: 'Limit-Staff', target: '192.168.88.0/24', 'max-limit': '50M/50M', 'burst-limit': '0/0', disabled: 'false' },
+                { '.id': '*3', name: 'Limit-Guest', target: '192.168.88.100/30', 'max-limit': '5M/5M', 'burst-limit': '0/0', disabled: 'true' }
+            ],
+            logs: [
+                { '.id': '*1', time: '11:20:00', topics: 'system,info', message: 'device changed by admin' },
+                { '.id': '*2', time: '11:21:05', topics: 'dhcp,info', message: 'dhcp1 assigned 192.168.88.25 to 00:1A:2B:3C:4D:5E' },
+                { '.id': '*3', time: '11:22:15', topics: 'firewall,info', message: 'web-access attempt blocked from 185.220.101.5' },
+                { '.id': '*4', time: '11:23:42', topics: 'system,info,account', message: 'user admin logged in via local' }
+            ]
+        });
+    }
+}
+
+function handleMockCommand(c, cmd) {
+    const baseCmd = Array.isArray(cmd) ? cmd[0] : cmd;
+    
+    if (baseCmd === '/system/resource/print') {
+        const uptimeMs = Date.now() - c.uptimeStart;
+        const totalSecs = Math.floor(uptimeMs / 1000);
+        const days = Math.floor(totalSecs / 86400);
+        const hours = Math.floor((totalSecs % 86400) / 3600);
+        const mins = Math.floor((totalSecs % 3600) / 60);
+        const secs = totalSecs % 60;
+        let uptimeStr = "";
+        if (days > 0) uptimeStr += `${days}d`;
+        if (hours > 0 || days > 0) uptimeStr += `${hours}h`;
+        if (mins > 0 || hours > 0 || days > 0) uptimeStr += `${mins}m`;
+        uptimeStr += `${secs}s`;
+
+        const cpuLoad = Math.floor(Math.random() * 15) + 3; // 3% to 17%
+
+        return [{
+            'uptime': uptimeStr || '0s',
+            'cpu-load': String(cpuLoad),
+            'free-memory': '24117248',
+            'total-memory': '67108864',
+            'cpu': 'MIPS',
+            'cpu-count': '1',
+            'cpu-frequency': '650',
+            'board-name': 'hEX lite'
+        }];
+    }
+    
+    if (baseCmd === '/system/routerboard/print') {
+        return [{
+            'routerboard': 'true',
+            'model': 'RB750Gr3',
+            'serial-number': `MT-DEMO-SN${c.id}`
+        }];
+    }
+    
+    if (baseCmd === '/system/identity/print') {
+        return [{ 'name': c.mockName }];
+    }
+    
+    if (baseCmd === '/ip/route/print') {
+        return [{
+            'dst-address': '0.0.0.0/0',
+            'gateway': '192.168.88.254',
+            'gateway-status': '192.168.88.254 reachable via ether1',
+            'active': 'true'
+        }];
+    }
+    
+    if (baseCmd === '/interface/print') {
+        return [
+            { name: 'ether1', type: 'ether', running: 'true' },
+            { name: 'ether2', type: 'ether', running: 'true' }
+        ];
+    }
+    
+    if (baseCmd === '/interface/monitor-traffic') {
+        const rx = Math.floor((Math.random() * 30 + 15) * 1000000);
+        const tx = Math.floor((Math.random() * 9 + 3) * 1000000);
+        return [{
+            'rx-bits-per-second': String(rx),
+            'tx-bits-per-second': String(tx)
+        }];
+    }
+    
+    if (baseCmd === '/log/print') {
+        if (Math.random() < 0.15 && c.logs.length < 100) {
+            const now = new Date();
+            const timeStr = now.toTimeString().split(' ')[0];
+            const logTypes = [
+                { topics: 'dhcp,info', message: `dhcp1 assigned 192.168.88.${Math.floor(Math.random()*150)+50} to client` },
+                { topics: 'firewall,info', message: `port scan detected from 185.${Math.floor(Math.random()*10)+200}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}` },
+                { topics: 'system,info', message: 'DNS cache cleared' },
+                { topics: 'system,info,account', message: 'user admin logged in via web' }
+            ];
+            const selected = logTypes[Math.floor(Math.random() * logTypes.length)];
+            c.logs.push({
+                '.id': `*${c.logs.length + 1}`,
+                time: timeStr,
+                topics: selected.topics,
+                message: selected.message
+            });
+        }
+        return c.logs;
+    }
+    
+    if (baseCmd === '/ip/arp/print') {
+        return [
+            { address: '192.168.88.10', 'mac-address': '00:15:5D:01:02:03', interface: 'ether2', complete: 'true' },
+            { address: '192.168.88.25', 'mac-address': '00:1A:2B:3C:4D:5E', interface: 'ether2', complete: 'true' },
+            { address: '192.168.88.50', 'mac-address': 'BC:EE:7B:A1:B2:C3', interface: 'ether2', complete: 'true' },
+            { address: '192.168.88.101', 'mac-address': 'FC:FB:FB:12:34:56', interface: 'ether2', complete: 'true' }
+        ];
+    }
+    
+    if (baseCmd === '/ip/firewall/filter/print') {
+        return c.firewalls;
+    }
+    
+    if (baseCmd === '/ip/firewall/filter/enable') {
+        const numberParam = cmd.find(p => p.startsWith('=numbers='));
+        if (numberParam) {
+            const id = numberParam.split('=')[2];
+            const rule = c.firewalls.find(f => f['.id'] === id);
+            if (rule) rule.disabled = 'false';
+        }
+        return [{ success: true }];
+    }
+    
+    if (baseCmd === '/ip/firewall/filter/disable') {
+        const numberParam = cmd.find(p => p.startsWith('=numbers='));
+        if (numberParam) {
+            const id = numberParam.split('=')[2];
+            const rule = c.firewalls.find(f => f['.id'] === id);
+            if (rule) rule.disabled = 'true';
+        }
+        return [{ success: true }];
+    }
+    
+    if (baseCmd === '/queue/simple/print') {
+        const nameParam = Array.isArray(cmd) ? cmd.find(p => p.startsWith('?name=')) : null;
+        if (nameParam) {
+            const qName = nameParam.split('=')[1];
+            const q = c.queues.find(item => item.name === qName);
+            if (q) {
+                let rate = '0/0';
+                if (q.disabled === 'false') {
+                    const rx = Math.floor(Math.random() * 300000) + 20000;
+                    const tx = Math.floor(Math.random() * 800000) + 50000;
+                    rate = `${rx}/${tx}`;
+                }
+                return [{ ...q, rate }];
+            }
+            return [];
+        }
+        
+        return c.queues.map(q => {
+            let rate = '0/0';
+            if (q.disabled === 'false') {
+                const rx = Math.floor(Math.random() * 300000) + 20000;
+                const tx = Math.floor(Math.random() * 800000) + 50000;
+                rate = `${rx}/${tx}`;
+            }
+            return { ...q, rate };
+        });
+    }
+    
+    if (baseCmd === '/queue/simple/enable') {
+        const numberParam = cmd.find(p => p.startsWith('=numbers='));
+        if (numberParam) {
+            const id = numberParam.split('=')[2];
+            const q = c.queues.find(item => item['.id'] === id);
+            if (q) q.disabled = 'false';
+        }
+        return [{ success: true }];
+    }
+    
+    if (baseCmd === '/queue/simple/disable') {
+        const numberParam = cmd.find(p => p.startsWith('=numbers='));
+        if (numberParam) {
+            const id = numberParam.split('=')[2];
+            const q = c.queues.find(item => item['.id'] === id);
+            if (q) q.disabled = 'true';
+        }
+        return [{ success: true }];
+    }
+    
+    if (baseCmd === '/ping') {
+        const addrParam = cmd.find(p => p.startsWith('=address='));
+        const targetIp = addrParam ? addrParam.split('=')[2] : '8.8.8.8';
+        return [
+            { host: targetIp, size: '56', ttl: '64', time: `${Math.floor(Math.random()*10)+5}ms`, status: 'echo reply' },
+            { host: targetIp, size: '56', ttl: '64', time: `${Math.floor(Math.random()*10)+5}ms`, status: 'echo reply' },
+            { host: targetIp, size: '56', ttl: '64', time: `${Math.floor(Math.random()*10)+5}ms`, status: 'echo reply' },
+            { host: targetIp, size: '56', ttl: '64', time: `${Math.floor(Math.random()*10)+5}ms`, status: 'echo reply' }
+        ];
+    }
+    
+    if (baseCmd === '/system/reboot') {
+        c.uptimeStart = Date.now();
+        c.logs.push({
+            '.id': `*${c.logs.length + 1}`,
+            time: new Date().toTimeString().split(' ')[0],
+            topics: 'system,info',
+            message: 'system rebooted'
+        });
+        return [{ success: true }];
+    }
+
+    return null;
+}
+
 async function runCommandOnClient(clientObj, command) {
+    if (clientObj.isMock) {
+        return handleMockCommand(clientObj, command);
+    }
     try {
         const executeWithTimeout = async (promiseFn, ms) => {
             let timer;
@@ -496,8 +804,8 @@ setInterval(async () => {
     const timestamp = Date.now();
     for (const c of clients) {
         try {
-            if (!c.client.connected && !c.isConnecting) {
-                db.run(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
+            if (!c.isMock && !c.client.connected && !c.isConnecting) {
+                dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
                     [timestamp, c.host, 0, 0, 'Offline']);
                 continue;
             }
@@ -510,15 +818,14 @@ setInterval(async () => {
                 if (traffic && traffic[0]) {
                     rx = parseInt(traffic[0]['rx-bits-per-second']) || 0;
                     tx = parseInt(traffic[0]['tx-bits-per-second']) || 0;
-                    
-                    db.run(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
+                    dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
                         [timestamp, c.host, rx, tx, 'Online']);
                 } else {
-                    db.run(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
+                    dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
                         [timestamp, c.host, 0, 0, 'Loss']);
                 }
             } catch(e) {
-                db.run(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
+                dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
                     [timestamp, c.host, 0, 0, 'Loss']);
             }
         } catch(e) {}
@@ -570,4 +877,15 @@ app.get('/api/reports', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}. Monitoring ${clients.length} routers.`);
+});
+
+// Global uncaught exception handler to prevent server crash
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception (non-fatal):', err.message || err);
+});
+process.on('unhandledRejection', (reason) => {
+    const msg = reason ? String(reason.message || reason) : 'Unknown';
+    if (!msg.includes('Timed out') && !msg.includes('RosException') && !msg.includes('SQLITE_BUSY')) {
+        console.error('Unhandled Promise Rejection (non-fatal):', msg);
+    }
 });
