@@ -69,8 +69,11 @@
 
     <!-- Main App Container -->
     <div id="app-container">
+        <!-- Sidebar Overlay for Mobile -->
+        <div id="sidebar-overlay" class="sidebar-overlay"></div>
+        
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-brand">
                 <h1>NetDash</h1>
             </div>
@@ -91,9 +94,14 @@
         <!-- Main Content -->
         <main class="main-content">
             <header>
-                <div>
-                    <h2 id="current-view-title">Dashboard Overview</h2>
-                    <p style="color: var(--text-muted); font-size: 14px; margin-top: 4px;">Realtime Network Monitoring System <span style="margin: 0 8px; opacity: 0.5;">|</span> <span id="current-date-display" style="font-weight: 500; color: var(--primary-color);"></span></p>
+                <div style="display: flex; align-items: center; gap: 16px;">
+                    <button id="mobile-menu-btn" class="mobile-menu-btn">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                    </button>
+                    <div>
+                        <h2 id="current-view-title">Dashboard Overview</h2>
+                        <p style="color: var(--text-muted); font-size: 14px; margin-top: 4px;" class="header-subtitle">Realtime Network Monitoring System <span style="margin: 0 8px; opacity: 0.5;" class="header-separator">|</span> <span id="current-date-display" style="font-weight: 500; color: var(--primary-color);"></span></p>
+                    </div>
                 </div>
                 <div style="display: flex; gap: 12px;">
                     <button id="print-btn" style="background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text-color); box-shadow: none; padding: 10px 14px; border-radius: 8px; display: flex; align-items: center; gap: 8px;" title="Print this view">
