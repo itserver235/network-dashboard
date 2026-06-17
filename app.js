@@ -328,41 +328,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // --- License Logic ---
+    // --- License system removed, always show login screen ---
     const licenseContainer = document.getElementById("license-container");
-    const licenseInput = document.getElementById("license-input");
-    const activateBtn = document.getElementById("activate-btn");
-    const licenseError = document.getElementById("license-error");
-
-    // Valid format: NETDASH-XXXX-XXXX-XXXX
-    const VALID_LICENSE_PATTERN = /^NETDASH-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/i;
-
-    function checkLicense() {
-        const currentLicense = localStorage.getItem("netdash_license");
-        if (currentLicense && VALID_LICENSE_PATTERN.test(currentLicense)) {
-            licenseContainer.style.display = "none";
-            loginContainer.style.display = "flex";
-        } else {
-            licenseContainer.style.display = "flex";
-            loginContainer.style.display = "none";
-            appContainer.style.display = "none";
-        }
-    }
-
-    activateBtn?.addEventListener("click", () => {
-        const key = licenseInput.value.trim().toUpperCase();
-        if (VALID_LICENSE_PATTERN.test(key)) {
-            localStorage.setItem("netdash_license", key);
-            licenseError.style.display = "none";
-            checkLicense();
-            restoreSession();
-        } else {
-            licenseError.style.display = "block";
-        }
-    });
+    if (licenseContainer) licenseContainer.style.display = "none";
+    loginContainer.style.display = "flex";
 
     // Run on startup
-    checkLicense();
     restoreSession();
 
     // --- Authentication ---
