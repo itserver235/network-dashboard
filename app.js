@@ -82,6 +82,20 @@ window.toggleFirewall = async function(host, id, enable) {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+    // --- Mobile Menu Logic ---
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+    if (mobileMenuBtn && sidebar && sidebarOverlay) {
+        function toggleSidebar() {
+            sidebar.classList.toggle('active');
+            sidebarOverlay.classList.toggle('active');
+        }
+        mobileMenuBtn.addEventListener('click', toggleSidebar);
+        sidebarOverlay.addEventListener('click', toggleSidebar);
+    }
+
     // --- Live Date/Time Display ---
     let userDateFormat = localStorage.getItem("netdash_date_format") || "Default";
 
@@ -403,6 +417,14 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- Navigation ---
     navLinks.forEach(link => {
         link.addEventListener("click", () => {
+            // Close mobile sidebar if open
+            if (window.innerWidth <= 768) {
+                const sidebar = document.getElementById('sidebar');
+                const sidebarOverlay = document.getElementById('sidebar-overlay');
+                if (sidebar) sidebar.classList.remove('active');
+                if (sidebarOverlay) sidebarOverlay.classList.remove('active');
+            }
+
             // Update active link
             navLinks.forEach(nav => nav.classList.remove("active"));
             link.classList.add("active");
@@ -1619,6 +1641,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function renderReports() {
         try {
+            // Fetch dashboard data to map IPs to router names
+            const dashboardData = await fetchFromAPI('dashboard');
+            const ipToName = {};
+            if (dashboardData) {
+                dashboardData.forEach(r => ipToName[r.ip] = r.name);
+            }
+
             const res = await secureFetch(`/api/reports?period=${currentReportPeriod}`);
             const data = await res.json();
             
@@ -1642,6 +1671,7 @@ document.addEventListener("DOMContentLoaded", () => {
             Object.keys(grouped).forEach(host => {
                 const hostData = grouped[host];
                 const chartId = `reportChart-${host.replace(/\./g, '-')}`;
+                const routerName = ipToName[host] || "Router";
                 
                 // Calculate Uptime
                 let totalOnline = 0;
@@ -1669,7 +1699,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 section.style.paddingTop = "24px";
 
                 section.innerHTML = `
-                    <h3 style="color: var(--text-color); margin-bottom: 16px;">Router: ${host}</h3>
+                    <h3 style="color: var(--text-color); margin-bottom: 16px;">${routerName} (${host})</h3>
                     <div style="height: 350px; position: relative; width: 100%;">
                         <canvas id="${chartId}"></canvas>
                     </div>

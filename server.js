@@ -447,6 +447,13 @@ async function runCommandOnClient(clientObj, command) {
         if (err && err.message === "SKIP_LOGS") return null; // Silent skip
         
         const msg = err ? String(err.message || err) : "Unknown error";
+        if (msg === "Error: Timed out" || msg === "Timed out") {
+            // It's just a command timeout, the socket might still be alive and just busy.
+            // We do not forcibly close it.
+            clientObj.isConnecting = false;
+            return null;
+        }
+
         if (!msg.includes("Timed out")) {
             console.error(`Error on Router ${clientObj.host}:`, msg);
         }
@@ -890,13 +897,11 @@ setInterval(async () => {
                     tx = parseInt(traffic[0]['tx-bits-per-second']) || 0;
                     dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
                         [timestamp, c.host, rx, tx, 'Online']);
-                } else {
-                    dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
-                        [timestamp, c.host, 0, 0, 'Loss']);
                 }
+                // If traffic is null due to API timeout/busy, we simply skip inserting for this minute
+                // This prevents false "Downtime" reports while the router is actually online.
             } catch(e) {
-                dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
-                    [timestamp, c.host, 0, 0, 'Loss']);
+                // Ignore API execution errors
             }
         } catch(e) {}
     }
