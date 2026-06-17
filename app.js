@@ -329,7 +329,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // --- License Logic ---
-    const loginContainer = document.getElementById("login-container");
     const licenseContainer = document.getElementById("license-container");
     const licenseInput = document.getElementById("license-input");
     const activateBtn = document.getElementById("activate-btn");
