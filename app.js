@@ -82,20 +82,6 @@ window.toggleFirewall = async function(host, id, enable) {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-    // --- Mobile Menu Logic ---
-    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
-    const sidebar = document.getElementById('sidebar');
-    const sidebarOverlay = document.getElementById('sidebar-overlay');
-
-    if (mobileMenuBtn && sidebar && sidebarOverlay) {
-        function toggleSidebar() {
-            sidebar.classList.toggle('active');
-            sidebarOverlay.classList.toggle('active');
-        }
-        mobileMenuBtn.addEventListener('click', toggleSidebar);
-        sidebarOverlay.addEventListener('click', toggleSidebar);
-    }
-
     // --- Live Date/Time Display ---
     let userDateFormat = localStorage.getItem("netdash_date_format") || "Default";
 
@@ -342,41 +328,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // --- License Logic ---
+    // --- License system removed, always show login screen ---
     const licenseContainer = document.getElementById("license-container");
-    const licenseInput = document.getElementById("license-input");
-    const activateBtn = document.getElementById("activate-btn");
-    const licenseError = document.getElementById("license-error");
-
-    // Valid format: NETDASH-XXXX-XXXX-XXXX
-    const VALID_LICENSE_PATTERN = /^NETDASH-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/i;
-
-    function checkLicense() {
-        const currentLicense = localStorage.getItem("netdash_license");
-        if (currentLicense && VALID_LICENSE_PATTERN.test(currentLicense)) {
-            licenseContainer.style.display = "none";
-            loginContainer.style.display = "flex";
-        } else {
-            licenseContainer.style.display = "flex";
-            loginContainer.style.display = "none";
-            appContainer.style.display = "none";
-        }
-    }
-
-    activateBtn?.addEventListener("click", () => {
-        const key = licenseInput.value.trim().toUpperCase();
-        if (VALID_LICENSE_PATTERN.test(key)) {
-            localStorage.setItem("netdash_license", key);
-            licenseError.style.display = "none";
-            checkLicense();
-            restoreSession();
-        } else {
-            licenseError.style.display = "block";
-        }
-    });
+    if (licenseContainer) licenseContainer.style.display = "none";
+    loginContainer.style.display = "flex";
 
     // Run on startup
-    checkLicense();
     restoreSession();
 
     // --- Authentication ---
@@ -446,14 +403,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- Navigation ---
     navLinks.forEach(link => {
         link.addEventListener("click", () => {
-            // Close mobile sidebar if open
-            if (window.innerWidth <= 768) {
-                const sidebar = document.getElementById('sidebar');
-                const sidebarOverlay = document.getElementById('sidebar-overlay');
-                if (sidebar) sidebar.classList.remove('active');
-                if (sidebarOverlay) sidebarOverlay.classList.remove('active');
-            }
-
             // Update active link
             navLinks.forEach(nav => nav.classList.remove("active"));
             link.classList.add("active");
@@ -1613,20 +1562,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 labels: [],
                 datasets: [
                     {
-                        label: 'Average RX (Mbps)',
+                        label: 'Availability (%)',
                         borderColor: '#34d399',
                         backgroundColor: 'rgba(52, 211, 153, 0.1)',
-                        data: [],
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 0,
-                        pointHoverRadius: 4
-                    },
-                    {
-                        label: 'Average TX (Mbps)',
-                        borderColor: '#3b82f6',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
                         data: [],
                         borderWidth: 2,
                         fill: true,
@@ -1656,10 +1594,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     },
                     y: {
                         beginAtZero: true,
+                        max: 100,
                         grid: { color: gridColor },
                         ticks: {
                             color: textColor,
-                            callback: function(value) { return value + ' Mbps'; }
+                            callback: function(value) { return value + '%'; }
                         }
                     }
                 }
@@ -1709,10 +1648,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 const aggregated = {};
                 hostData.forEach(row => {
                     if (!aggregated[row.time_bucket]) {
-                        aggregated[row.time_bucket] = { rx: 0, tx: 0 };
+                        aggregated[row.time_bucket] = { online: 0, offline: 0 };
                     }
-                    aggregated[row.time_bucket].rx += row.avg_rx;
-                    aggregated[row.time_bucket].tx += row.avg_tx;
+                    aggregated[row.time_bucket].online += row.online_count || 0;
+                    aggregated[row.time_bucket].offline += row.offline_count || 0;
                     
                     totalOnline += row.online_count || 0;
                     totalOffline += row.offline_count || 0;
@@ -1756,8 +1695,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 const sortedBuckets = Object.keys(aggregated).sort((a,b) => parseInt(a) - parseInt(b));
                 const labels = [];
-                const rxData = [];
-                const txData = [];
+                const availabilityData = [];
 
                 sortedBuckets.forEach(bucket => {
                     const date = new Date(parseInt(bucket));
@@ -1769,13 +1707,13 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                     
                     labels.push(timeStr);
-                    rxData.push((aggregated[bucket].rx / 1000000).toFixed(2));
-                    txData.push((aggregated[bucket].tx / 1000000).toFixed(2));
+                    const total = aggregated[bucket].online + aggregated[bucket].offline;
+                    const pct = total > 0 ? (aggregated[bucket].online / total) * 100 : 100;
+                    availabilityData.push(pct.toFixed(1));
                 });
 
                 chartInst.data.labels = labels;
-                chartInst.data.datasets[0].data = rxData;
-                chartInst.data.datasets[1].data = txData;
+                chartInst.data.datasets[0].data = availabilityData;
                 chartInst.update();
             });
         } catch (e) {

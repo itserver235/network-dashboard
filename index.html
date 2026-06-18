@@ -13,24 +13,6 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <!-- License Activation Screen -->
-    <div id="license-container" style="display: none;">
-        <div class="login-glow glow-1"></div>
-        <div class="login-glow glow-2"></div>
-        <div class="glass login-card" style="text-align: center;">
-            <div class="login-logo" style="margin: 0 auto 10px auto;">
-                <span style="font-size: 24px;">🔑</span>
-            </div>
-            <h2>Software Activation</h2>
-            <p style="color: var(--text-muted); font-size: 14px; margin-top: -10px;">Please enter your premium serial key.</p>
-            
-            <div class="form-group" style="margin-top: 10px;">
-                <input type="text" id="license-input" placeholder="e.g. NETDASH-XXXX-XXXX" style="text-align: center; font-size: 16px; letter-spacing: 2px; text-transform: uppercase;">
-            </div>
-            <button id="activate-btn" style="padding: 12px; font-size: 15px; font-weight: 600; letter-spacing: 1px;">Activate Product</button>
-            <p id="license-error" style="color: #ef4444; font-size: 13px; display: none; margin: 0; padding: 10px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.2);">Invalid or expired serial key.</p>
-        </div>
-    </div>
 
     <!-- Login Screen -->
     <div id="login-container">
@@ -69,11 +51,8 @@
 
     <!-- Main App Container -->
     <div id="app-container">
-        <!-- Sidebar Overlay for Mobile -->
-        <div id="sidebar-overlay" class="sidebar-overlay"></div>
-        
         <!-- Sidebar -->
-        <aside class="sidebar" id="sidebar">
+        <aside class="sidebar">
             <div class="sidebar-brand">
                 <h1>NetDash</h1>
             </div>
@@ -94,14 +73,9 @@
         <!-- Main Content -->
         <main class="main-content">
             <header>
-                <div style="display: flex; align-items: center; gap: 16px;">
-                    <button id="mobile-menu-btn" class="mobile-menu-btn">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
-                    </button>
-                    <div>
-                        <h2 id="current-view-title">Dashboard Overview</h2>
-                        <p style="color: var(--text-muted); font-size: 14px; margin-top: 4px;" class="header-subtitle">Realtime Network Monitoring System <span style="margin: 0 8px; opacity: 0.5;" class="header-separator">|</span> <span id="current-date-display" style="font-weight: 500; color: var(--primary-color);"></span></p>
-                    </div>
+                <div>
+                    <h2 id="current-view-title">Dashboard Overview</h2>
+                    <p style="color: var(--text-muted); font-size: 14px; margin-top: 4px;">Realtime Network Monitoring System <span style="margin: 0 8px; opacity: 0.5;">|</span> <span id="current-date-display" style="font-weight: 500; color: var(--primary-color);"></span></p>
                 </div>
                 <div style="display: flex; gap: 12px;">
                     <button id="print-btn" style="background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text-color); box-shadow: none; padding: 10px 14px; border-radius: 8px; display: flex; align-items: center; gap: 8px;" title="Print this view">
