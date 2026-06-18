@@ -1562,20 +1562,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 labels: [],
                 datasets: [
                     {
-                        label: 'Average RX (Mbps)',
+                        label: 'Availability (%)',
                         borderColor: '#34d399',
                         backgroundColor: 'rgba(52, 211, 153, 0.1)',
-                        data: [],
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 0,
-                        pointHoverRadius: 4
-                    },
-                    {
-                        label: 'Average TX (Mbps)',
-                        borderColor: '#3b82f6',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
                         data: [],
                         borderWidth: 2,
                         fill: true,
@@ -1605,10 +1594,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     },
                     y: {
                         beginAtZero: true,
+                        max: 100,
                         grid: { color: gridColor },
                         ticks: {
                             color: textColor,
-                            callback: function(value) { return value + ' Mbps'; }
+                            callback: function(value) { return value + '%'; }
                         }
                     }
                 }
@@ -1658,10 +1648,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 const aggregated = {};
                 hostData.forEach(row => {
                     if (!aggregated[row.time_bucket]) {
-                        aggregated[row.time_bucket] = { rx: 0, tx: 0 };
+                        aggregated[row.time_bucket] = { online: 0, offline: 0 };
                     }
-                    aggregated[row.time_bucket].rx += row.avg_rx;
-                    aggregated[row.time_bucket].tx += row.avg_tx;
+                    aggregated[row.time_bucket].online += row.online_count || 0;
+                    aggregated[row.time_bucket].offline += row.offline_count || 0;
                     
                     totalOnline += row.online_count || 0;
                     totalOffline += row.offline_count || 0;
@@ -1705,8 +1695,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 const sortedBuckets = Object.keys(aggregated).sort((a,b) => parseInt(a) - parseInt(b));
                 const labels = [];
-                const rxData = [];
-                const txData = [];
+                const availabilityData = [];
 
                 sortedBuckets.forEach(bucket => {
                     const date = new Date(parseInt(bucket));
@@ -1718,13 +1707,13 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                     
                     labels.push(timeStr);
-                    rxData.push((aggregated[bucket].rx / 1000000).toFixed(2));
-                    txData.push((aggregated[bucket].tx / 1000000).toFixed(2));
+                    const total = aggregated[bucket].online + aggregated[bucket].offline;
+                    const pct = total > 0 ? (aggregated[bucket].online / total) * 100 : 100;
+                    availabilityData.push(pct.toFixed(1));
                 });
 
                 chartInst.data.labels = labels;
-                chartInst.data.datasets[0].data = rxData;
-                chartInst.data.datasets[1].data = txData;
+                chartInst.data.datasets[0].data = availabilityData;
                 chartInst.update();
             });
         } catch (e) {

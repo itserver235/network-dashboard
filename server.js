@@ -901,7 +901,9 @@ setInterval(async () => {
                 // If traffic is null due to API timeout/busy, we simply skip inserting for this minute
                 // This prevents false "Downtime" reports while the router is actually online.
             } catch(e) {
-                // Ignore API execution errors
+                // If the command fails or times out, log as Offline
+                dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
+                    [timestamp, c.host, 0, 0, 'Offline']);
             }
         } catch(e) {}
     }
