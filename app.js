@@ -410,6 +410,14 @@ document.addEventListener("DOMContentLoaded", () => {
             // Update title
             currentViewTitle.textContent = link.textContent;
 
+            // Clear all intervals once before switching views
+            if (dashboardInterval) clearInterval(dashboardInterval);
+            if (trafficInterval) clearInterval(trafficInterval);
+            if (queueInterval) clearInterval(queueInterval);
+            dashboardInterval = null;
+            trafficInterval = null;
+            queueInterval = null;
+
             // Show target section
             const targetId = link.getAttribute("data-target");
             viewSections.forEach(section => {
@@ -417,12 +425,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     section.classList.add("active");
                 } else {
                     section.classList.remove("active");
-                    if (dashboardInterval) clearInterval(dashboardInterval);
-                    if (trafficInterval) clearInterval(trafficInterval);
-                    if (queueInterval) clearInterval(queueInterval);
-                    dashboardInterval = null;
-                    trafficInterval = null;
-                    queueInterval = null;
                 }
             });
 
@@ -446,12 +448,79 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
                 if (targetId === "view-ping") renderPingView();
                 if (targetId === "view-gps") renderGpsView();
+                if (targetId === "view-speedtest") renderSpeedTest();
                 if (targetId === "view-logs") renderLogs();
                 if (targetId === "view-users") renderUserList();
                 if (targetId === "view-reports") renderReports();
             }
         });
     });
+
+    // --- Speed Test Logic ---
+    async function renderSpeedTest() {
+        const routerSelect = document.getElementById("speedtest-router-select");
+        const btn = document.getElementById("run-speedtest-btn");
+        const resultContainer = document.getElementById("speedtest-result-container");
+        
+        // Load routers if not loaded
+        if (routerSelect.options.length <= 1) {
+            routerSelect.innerHTML = "<option value=''>Memuat daftar router...</option>";
+            const dashboardData = await fetchFromAPI('dashboard');
+            routerSelect.innerHTML = "";
+            if (dashboardData && dashboardData.length > 0) {
+                dashboardData.forEach(r => {
+                    const opt = document.createElement("option");
+                    opt.value = r.ip;
+                    opt.textContent = `${r.name} (${r.ip})`;
+                    routerSelect.appendChild(opt);
+                });
+            } else {
+                routerSelect.innerHTML = "<option value=''>Tidak ada router tersedia</option>";
+            }
+        }
+
+        btn.onclick = async () => {
+            const host = routerSelect.value;
+            const targetIp = document.getElementById("speedtest-server-ip").value.trim();
+            
+            if (!host) {
+                alert("Pilih router terlebih dahulu!");
+                return;
+            }
+
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg> Sedang Menguji... (15-30s)`;
+            btn.disabled = true;
+            btn.style.opacity = "0.7";
+            resultContainer.style.display = "none";
+
+            try {
+                const res = await secureFetch('/api/speedtest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ host, targetIp })
+                });
+
+                const data = await res.json();
+                
+                if (res.ok && data.success) {
+                    document.getElementById("st-rx").textContent = data.rx || "0 Mbps";
+                    document.getElementById("st-tx").textContent = data.tx || "0 Mbps";
+                    document.getElementById("st-ping").textContent = data.ping || "-";
+                    document.getElementById("st-loss").textContent = data.loss || "0%";
+                    resultContainer.style.display = "block";
+                } else {
+                    alert("Speed Test Gagal: " + (data.error || "Unknown error"));
+                }
+            } catch (err) {
+                alert("Koneksi ke server gagal.");
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                btn.style.opacity = "1";
+            }
+        };
+    }
 
     // --- Rendering Logic ---
 
@@ -1536,10 +1605,42 @@ document.addEventListener("DOMContentLoaded", () => {
     const changePassMsg = document.getElementById("change-pass-msg");
     
     if (changePassBtn) {
-        changePassBtn.addEventListener("click", () => {
-            changePassMsg.textContent = "Fitur ganti password sedang dinonaktifkan sementara untuk perbaikan.";
-            changePassMsg.style.color = "var(--warning-color)";
-            setTimeout(() => { changePassMsg.textContent = ""; }, 3000);
+        changePassBtn.addEventListener("click", async () => {
+            const oldPassword = document.getElementById("old-password").value;
+            const newPassword = document.getElementById("change-new-password").value;
+
+            if (!oldPassword || !newPassword) {
+                changePassMsg.textContent = "Mohon isi password lama dan baru.";
+                changePassMsg.style.color = "var(--warning-color)";
+                return;
+            }
+
+            changePassBtn.disabled = true;
+            changePassBtn.textContent = "Updating...";
+
+            try {
+                const data = await secureFetch('/api/users/change-password', {
+                    method: 'POST',
+                    body: JSON.stringify({ oldPassword, newPassword })
+                });
+
+                if (data && data.success) {
+                    changePassMsg.textContent = "Password berhasil diubah!";
+                    changePassMsg.style.color = "var(--success-color)";
+                    document.getElementById("old-password").value = "";
+                    document.getElementById("change-new-password").value = "";
+                } else {
+                    changePassMsg.textContent = data.error || "Gagal mengubah password.";
+                    changePassMsg.style.color = "var(--danger-color)";
+                }
+            } catch (e) {
+                changePassMsg.textContent = "Error connecting to server.";
+                changePassMsg.style.color = "var(--danger-color)";
+            } finally {
+                changePassBtn.disabled = false;
+                changePassBtn.textContent = "Update Password";
+                setTimeout(() => { changePassMsg.textContent = ""; }, 5000);
+            }
         });
     }
 
@@ -1737,5 +1838,64 @@ document.addEventListener("DOMContentLoaded", () => {
             renderReports();
         });
     });
+    });
 
-});
+    // --- Global Table Sorting Logic ---
+    document.body.addEventListener('click', (e) => {
+        if (e.target.tagName === 'TH' && e.target.closest('table')) {
+            const th = e.target;
+            const table = th.closest('table');
+            const tbody = table.querySelector('tbody');
+            if (!tbody) return;
+
+            const cols = Array.from(th.parentNode.children);
+            const colIndex = cols.indexOf(th);
+
+            let asc = th.getAttribute('data-sort') === 'asc';
+            asc = !asc;
+
+            cols.forEach(c => {
+                c.removeAttribute('data-sort');
+                c.innerText = c.innerText.replace(' ▲', '').replace(' ▼', '');
+            });
+
+            th.setAttribute('data-sort', asc ? 'asc' : 'desc');
+            th.innerText += asc ? ' ▲' : ' ▼';
+
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            if (rows.length <= 1 && rows[0] && rows[0].innerText.includes('No data')) return;
+
+            rows.sort((a, b) => {
+                const aCol = a.children[colIndex];
+                const bCol = b.children[colIndex];
+                if (!aCol || !bCol) return 0;
+                
+                const aText = aCol.innerText.trim();
+                const bText = bCol.innerText.trim();
+
+                // IP Address Sorting
+                const isIP = (str) => /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/.test(str.trim());
+                if (isIP(aText) && isIP(bText)) {
+                    const numA = aText.split('/')[0].split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet), 0);
+                    const numB = bText.split('/')[0].split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet), 0);
+                    return asc ? numA - numB : numB - numA;
+                }
+
+                // Numeric Sorting
+                const aNum = parseFloat(aText.replace(/[^\d.-]/g, ""));
+                const bNum = parseFloat(bText.replace(/[^\d.-]/g, ""));
+                const isNumericA = !isNaN(aNum) && /\d/.test(aText) && aText.length < 20 && !aText.includes(':');
+                const isNumericB = !isNaN(bNum) && /\d/.test(bText) && bText.length < 20 && !bText.includes(':');
+
+                if (isNumericA && isNumericB) {
+                    return asc ? aNum - bNum : bNum - aNum;
+                }
+
+                // Fallback to string sort
+                return asc ? aText.localeCompare(bText) : bText.localeCompare(aText);
+            });
+
+            tbody.innerHTML = '';
+            rows.forEach(r => tbody.appendChild(r));
+        }
+    });

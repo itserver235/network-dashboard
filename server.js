@@ -69,6 +69,10 @@ setInterval(() => {
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
     
+    if (typeof username !== 'string' || typeof password !== 'string') {
+        return res.status(401).json({ success: false, error: "Username atau password salah." });
+    }
+    
     db.get("SELECT * FROM users WHERE username = ?", [username], (err, user) => {
         if (err || !user) {
             return res.status(401).json({ success: false, error: "Username atau password salah." });
@@ -134,7 +138,9 @@ app.get('/api/users', (req, res) => {
 
 app.post('/api/users/add', (req, res) => {
     const { username, password, role } = req.body;
-    if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+        return res.status(400).json({ error: "Username and password required and must be text" });
+    }
     
     const crypto = require('crypto');
     const salt = crypto.randomBytes(16).toString('hex');
@@ -154,6 +160,46 @@ app.delete('/api/users/delete/:id', (req, res) => {
     db.run("DELETE FROM users WHERE id = ?", [req.params.id], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
+    });
+});
+
+app.post('/api/users/change-password', (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    if (typeof oldPassword !== 'string' || typeof newPassword !== 'string' || !oldPassword || !newPassword) {
+        return res.status(400).json({ success: false, error: "Password lama dan baru harus diisi" });
+    }
+    
+    // Get username from token
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) return res.status(401).json({ success: false, error: "Unauthorized" });
+    const token = authHeader.split(' ')[1];
+    const session = activeSessions.get(token);
+    if (!session) return res.status(401).json({ success: false, error: "Unauthorized" });
+
+    db.get("SELECT * FROM users WHERE username = ?", [session.username], (err, user) => {
+        if (err || !user) return res.status(404).json({ success: false, error: "User not found" });
+        
+        try {
+            const [salt, key] = user.password.split(':');
+            const crypto = require('crypto');
+            const hashedBuffer = crypto.scryptSync(oldPassword, salt, 64);
+            const keyBuffer = Buffer.from(key, 'hex');
+            
+            if (!crypto.timingSafeEqual(hashedBuffer, keyBuffer)) {
+                return res.status(401).json({ success: false, error: "Password lama salah" });
+            }
+            
+            const newSalt = crypto.randomBytes(16).toString('hex');
+            const newHash = crypto.scryptSync(newPassword, newSalt, 64).toString('hex');
+            const finalNewHash = `${newSalt}:${newHash}`;
+            
+            db.run("UPDATE users SET password = ? WHERE username = ?", [finalNewHash, session.username], function(err) {
+                if (err) return res.status(500).json({ success: false, error: "Database error" });
+                res.json({ success: true, message: "Password berhasil diubah" });
+            });
+        } catch (e) {
+            res.status(500).json({ success: false, error: "Internal server error" });
+        }
     });
 });
 
@@ -182,7 +228,7 @@ for (let i = 1; i <= 10; i++) {
         client.connected = false;
     });
 
-    clients.push({ id: i, host, client });
+    clients.push({ id: i, host, user, password, client });
 }
 
 // If no clients are configured in .env, populate with mock/simulated clients
@@ -415,10 +461,24 @@ function handleMockCommand(c, cmd) {
         return [{ success: true }];
     }
 
+    if (commandStr.includes('/tool/speed-test') || commandStr.includes('/tool/bandwidth-test')) {
+        return new Promise(resolve => {
+            setTimeout(() => {
+                resolve([{
+                    'status': 'done',
+                    'tcp-download': Math.floor(Math.random() * 100) + 50 + 'Mbps',
+                    'tcp-upload': Math.floor(Math.random() * 50) + 20 + 'Mbps',
+                    'ping-min-avg-max': '10ms / ' + (Math.floor(Math.random() * 10) + 15) + 'ms / 30ms',
+                    'loss': '0%'
+                }]);
+            }, 5000);
+        });
+    }
+
     return null;
 }
 
-async function runCommandOnClient(clientObj, command) {
+async function runCommandOnClient(clientObj, command, customTimeout = 5000) {
     if (clientObj.isMock) {
         return handleMockCommand(clientObj, command);
     }
@@ -442,7 +502,7 @@ async function runCommandOnClient(clientObj, command) {
                 clientObj.isConnecting = false;
             }
         }
-        return await executeWithTimeout(() => clientObj.client.write(command), 5000);
+        return await executeWithTimeout(() => clientObj.client.write(command), customTimeout);
     } catch (err) {
         if (err && err.message === "SKIP_LOGS") return null; // Silent skip
         
@@ -802,11 +862,63 @@ app.post('/api/ping', async (req, res) => {
     }
 });
 
+// --- Speed Test API Endpoint ---
+app.post('/api/speedtest', async (req, res) => {
+    const { host, targetIp } = req.body;
+    if (!host) return res.status(400).json({ success: false, error: "Host is required" });
+
+    try {
+        let c = clients.find(client => client.host === host);
+        if (!c) return res.status(404).json({ success: false, error: "Router not found" });
+
+        let result;
+        if (targetIp) {
+            // Find target credentials if it's one of our known routers
+            let targetClient = clients.find(cl => cl.host === targetIp);
+            let cmd = ['/tool/bandwidth-test', `=address=${targetIp}`, '=duration=10s', '=direction=both', '=protocol=tcp'];
+            
+            if (targetClient && targetClient.user) {
+                cmd.push(`=user=${targetClient.user}`);
+                if (targetClient.password) cmd.push(`=password=${targetClient.password}`);
+            }
+
+            // Bandwidth test to specific IP
+            result = await runCommandOnClient(c, cmd, 15000);
+        } else {
+            // Public Speed Test (available in newer RouterOS versions)
+            result = await runCommandOnClient(c, ['/tool/speed-test'], 30000);
+        }
+
+        if (!result) {
+            if (!targetIp) {
+                return res.status(500).json({ success: false, error: "Router Anda tidak mendukung tes otomatis. Harap isi 'Test Server IP' secara manual dengan IP Router BTest tujuan." });
+            }
+            return res.status(500).json({ success: false, error: "Perintah gagal atau timed out. Pastikan IP Test Server valid dan fitur BTest Server aktif di tujuan." });
+        }
+
+        // Parse result
+        let finalData = result.length ? result[result.length - 1] : result;
+        
+        // Handle node-routeros bandwidth-test specific output (bits per second)
+        let rxRaw = finalData['tcp-download'] || finalData['rx-10-second-average'] || finalData['rx-current'] || "0";
+        let txRaw = finalData['tcp-upload'] || finalData['tx-10-second-average'] || finalData['tx-current'] || "0";
+        
+        let rx = rxRaw.includes('Mbps') ? rxRaw : (parseInt(rxRaw) / 1000000).toFixed(1) + " Mbps";
+        let tx = txRaw.includes('Mbps') ? txRaw : (parseInt(txRaw) / 1000000).toFixed(1) + " Mbps";
+        let ping = finalData['ping-min-avg-max'] || finalData['ping'] || "-";
+        let loss = finalData['loss'] || "-";
+
+        res.json({ success: true, rx, tx, ping, loss, raw: finalData });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 const http = require('http');
 
 function getIPGeo(ip) {
     return new Promise((resolve) => {
-        http.get(`http://ip-api.com/json/${ip}`, (res) => {
+        const req = http.get(`http://ip-api.com/json/${ip}`, { timeout: 3000 }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
@@ -816,7 +928,12 @@ function getIPGeo(ip) {
                     resolve(null);
                 }
             });
-        }).on('error', () => resolve(null));
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => {
+            req.destroy();
+            resolve(null);
+        });
     });
 }
 
@@ -881,12 +998,6 @@ setInterval(async () => {
     const timestamp = Date.now();
     for (const c of clients) {
         try {
-            if (!c.isMock && !c.client.connected && !c.isConnecting) {
-                dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
-                    [timestamp, c.host, 0, 0, 'Offline']);
-                continue;
-            }
-            
             const iface = await getWanInterface(c);
             let rx = 0; let tx = 0;
             
@@ -895,16 +1006,13 @@ setInterval(async () => {
                 if (traffic && traffic[0]) {
                     rx = parseInt(traffic[0]['rx-bits-per-second']) || 0;
                     tx = parseInt(traffic[0]['tx-bits-per-second']) || 0;
-                    dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
-                        [timestamp, c.host, rx, tx, 'Online']);
                 }
-                // If traffic is null due to API timeout/busy, we simply skip inserting for this minute
-                // This prevents false "Downtime" reports while the router is actually online.
-            } catch(e) {
-                // If the command fails or times out, log as Offline
-                dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
-                    [timestamp, c.host, 0, 0, 'Offline']);
-            }
+            } catch(e) {}
+            
+            const status = (c.isMock || c.client.connected) ? 'Online' : 'Offline';
+            dbRun(`INSERT INTO router_metrics (timestamp, host, rx, tx, status) VALUES (?, ?, ?, ?, ?)`, 
+                [timestamp, c.host, rx, tx, status]);
+
         } catch(e) {}
     }
 }, 60000);

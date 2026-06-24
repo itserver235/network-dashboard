@@ -63,6 +63,7 @@
                     <li data-target="view-queue"><span>🚦</span> Bandwidth Queue</li>
                     <li data-target="view-ping"><span>📡</span> Ping Tester</li>
                     <li data-target="view-gps"><span>🗺️</span> GPS Location</li>
+                    <li data-target="view-speedtest"><span>🚀</span> Speed Test</li>
                     <li data-target="view-logs"><span>📝</span> System Logs</li>
                     <li data-target="view-reports"><span>📈</span> History Reports</li>
                     <li data-target="view-users"><span>👥</span> Users</li>
@@ -291,10 +292,60 @@
                     <button id="change-pass-btn" style="width: 100%;">Update Password</button>
                     <div id="change-pass-msg" style="margin-top: 10px; font-size: 13px; text-align: center;"></div>
                 </div>
-            </section>
+        </section>
 
-        </main>
-    </div>
+        <!-- Speed Test View -->
+        <section id="view-speedtest" class="view-section">
+            <div class="glass" style="padding: 24px; border-radius: 12px; margin-bottom: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div>
+                        <h3 style="color: var(--text-color);">Router Speed Test</h3>
+                        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 8px;">Run a bandwidth test directly from the MikroTik router</p>
+                    </div>
+                </div>
+                
+                <div style="background: rgba(0,0,0,0.1); border: 1px solid var(--card-border); padding: 20px; border-radius: 8px;">
+                    <div class="input-group" style="margin-bottom: 16px;">
+                        <label>Select Router</label>
+                        <select id="speedtest-router-select" style="width: 100%; background: var(--card-bg); color: var(--text-color); border: 1px solid var(--card-border); padding: 10px; border-radius: 8px; outline: none;">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="input-group" style="margin-bottom: 16px;">
+                        <label>Test Server IP (Optional)</label>
+                        <input type="text" id="speedtest-server-ip" placeholder="Leave blank to use public BTest servers (requires RouterOS v6.44+)">
+                    </div>
+                    <button id="run-speedtest-btn" style="background: var(--primary-color); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Run Speed Test
+                    </button>
+                </div>
+                
+                <div id="speedtest-result-container" style="display: none; margin-top: 24px;">
+                    <h4 style="color: var(--text-color); margin-bottom: 12px;">Test Results</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
+                        <div style="background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.2); padding: 16px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">RX Download</div>
+                            <div id="st-rx" style="font-size: 20px; font-weight: bold; color: var(--success-color);">-</div>
+                        </div>
+                        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); padding: 16px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">TX Upload</div>
+                            <div id="st-tx" style="font-size: 20px; font-weight: bold; color: var(--primary-color);">-</div>
+                        </div>
+                        <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); padding: 16px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Ping (Avg)</div>
+                            <div id="st-ping" style="font-size: 20px; font-weight: bold; color: var(--warning-color);">-</div>
+                        </div>
+                        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 16px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Loss</div>
+                            <div id="st-loss" style="font-size: 20px; font-weight: bold; color: var(--danger-color);">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+</div>
 
     <!-- Leaflet JS for GPS Map -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
