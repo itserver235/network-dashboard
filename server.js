@@ -882,8 +882,30 @@ app.post('/api/speedtest', async (req, res) => {
                 if (targetClient.password) cmd.push(`=password=${targetClient.password}`);
             }
 
+            // Ping first to get latency since bandwidth-test doesn't return ping
+            let pingRes = await runCommandOnClient(c, ['/ping', `=address=${targetIp}`, '=count=3'], 10000).catch(() => null);
+            let pingStr = "-";
+            if (pingRes && pingRes.length > 0) {
+                let total = 0;
+                let valid = 0;
+                pingRes.forEach(p => {
+                    if (p.time) {
+                        total += parseInt(p.time.replace('ms', ''));
+                        valid++;
+                    }
+                });
+                if (valid > 0) pingStr = Math.round(total / valid) + "ms";
+            }
+
             // Bandwidth test to specific IP
             result = await runCommandOnClient(c, cmd, 15000);
+            if (result) {
+                if (Array.isArray(result) && result.length > 0) {
+                    result[result.length - 1].ping = pingStr;
+                } else if (!Array.isArray(result)) {
+                    result.ping = pingStr;
+                }
+            }
         } else {
             // Public Speed Test (available in newer RouterOS versions)
             result = await runCommandOnClient(c, ['/tool/speed-test'], 30000);
